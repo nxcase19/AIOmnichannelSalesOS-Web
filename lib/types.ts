@@ -48,6 +48,21 @@ export type DashboardModel = {
   nextAction: string;
 };
 
+export type ConnectionReview = {
+  businessId: string;
+  businessName: string;
+  pages: { pageId: string; name: string; permissions: string[] }[];
+};
+
+export type ConnectionResult = {
+  tenantId: string;
+  businessId: string;
+  businessName: string;
+  connectedPages: number;
+  pageIds: string[];
+  incompleteItems: string[];
+};
+
 export type Diagnostics = {
   overallStatus: OverallStatus;
   categories: {
@@ -56,14 +71,4 @@ export type Diagnostics = {
     message: string;
     detail?: string;
   }[];
-};
-
-export type ConnectionResult = {
-  tenantId: string;
-  businessId: string;
-  businessName: string;
-  connectedPages: number;
-  pages: FacebookPageOption[];
-  incompleteItems: string[];
-  nextAction: string;
 };

@@ -6,8 +6,8 @@ import { useEffect, useMemo, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardBody, CardHeader, CardTitle } from "@/components/ui/card";
 import { LinkButton } from "@/components/ui/button";
-import { getBusinesses, getPagesForBusiness } from "@/lib/api";
-import type { FacebookBusiness, FacebookPageOption } from "@/lib/types";
+import { reviewConnection } from "@/lib/api";
+import type { ConnectionReview } from "@/lib/types";
 
 function PageContent() {
   const search = useSearchParams();
@@ -15,15 +15,17 @@ function PageContent() {
   const pageIdParam = search.get("pageIds") ?? "";
   const selectedIds = useMemo(() => pageIdParam.split(",").filter(Boolean), [pageIdParam]);
 
-  const [business, setBusiness] = useState<FacebookBusiness | null>(null);
-  const [pages, setPages] = useState<FacebookPageOption[]>([]);
+  const [review, setReview] = useState<ConnectionReview | null>(null);
 
   useEffect(() => {
-    getBusinesses("t1").then((bs) => setBusiness(bs.find((b) => b.businessId === businessId) ?? null));
-    getPagesForBusiness("t1", businessId).then((ps) => setPages(ps));
-  }, [businessId]);
+    if (businessId && selectedIds.length > 0) {
+      reviewConnection("t1", businessId, selectedIds).then(setReview);
+    }
+  }, [businessId, selectedIds]);
 
-  const selected = pages.filter((p) => selectedIds.includes(p.pageId));
+  if (!review) {
+    return <p className="text-gray-500">กำลังโหลด...</p>;
+  }
 
   return (
     <div className="space-y-6">
@@ -34,8 +36,8 @@ function PageContent() {
           <CardTitle>สรุปการเชื่อมต่อ</CardTitle>
         </CardHeader>
         <CardBody>
-          <p className="mb-2"><span className="text-gray-500">Business:</span> {business?.name ?? businessId}</p>
-          <p className="mb-4"><span className="text-gray-500">Page ที่เลือก:</span> {selected.length} หน้า</p>
+          <p className="mb-2"><span className="text-gray-500">Business:</span> {review.businessName}</p>
+          <p className="mb-4"><span className="text-gray-500">Page ที่เลือก:</span> {review.pages.length} หน้า</p>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -46,10 +48,10 @@ function PageContent() {
                 </tr>
               </thead>
               <tbody>
-                {selected.map((p) => (
+                {review.pages.map((p) => (
                   <tr key={p.pageId} className="border-b border-gray-100 last:border-0">
                     <td className="py-2 pr-4 font-medium">{p.name}</td>
-                    <td className="py-2 pr-4 text-gray-600">pages_messaging, pages_read_engagement</td>
+                    <td className="py-2 pr-4 text-gray-600">{p.permissions.join(", ")}</td>
                   </tr>
                 ))}
               </tbody>
