@@ -8,7 +8,7 @@ import type {
   ConnectionReview,
   ConnectionResult,
 } from "./types";
-import { API_BASE, API_TOKEN, DEFAULT_TENANT, USE_MOCK } from "./config";
+import { API_BASE, DEFAULT_TENANT, USE_MOCK } from "./config";
 import { businesses, allPageOptions, pages, tenantSummary, dashboard, diagnostics } from "./fixtures";
 
 // Re-export types that screens already import.
@@ -22,7 +22,6 @@ async function apiCall<T>(path: string, method: "GET" | "POST" = "GET", body?: u
     method,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${API_TOKEN}`,
       "X-Tenant-Id": DEFAULT_TENANT,
     },
   };
