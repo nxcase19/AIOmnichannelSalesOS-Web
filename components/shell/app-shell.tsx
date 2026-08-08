@@ -1,8 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useAuth } from "@/lib/auth-context";
+import { Button } from "@/components/ui/button";
+
+const publicPaths = new Set(["/login", "/auth/magic-link", "/no-workspace", "/session-expired", "/unauthorized"]);
+
+function isPublicPath(pathname: string): boolean {
+  return publicPaths.has(pathname) || pathname.startsWith("/_next");
+}
 
 const nav = [
   { href: "/", label: "หน้าแรก" },
@@ -15,7 +23,49 @@ const nav = [
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { state, logout } = useAuth();
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (state.kind === "unauthenticated" && !isPublicPath(pathname)) {
+      router.replace("/login");
+      return;
+    }
+
+    if (state.kind === "authenticated") {
+      if (pathname === "/login" || pathname === "/auth/magic-link") {
+        if (state.selectedWorkspaceId) {
+          router.replace("/");
+        } else if (state.workspaces.length === 0) {
+          router.replace("/no-workspace");
+        } else {
+          router.replace("/workspaces");
+        }
+      }
+    }
+  }, [state, pathname, router]);
+
+  if (state.kind === "loading") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <p className="text-gray-600">กำลังโหลด...</p>
+      </div>
+    );
+  }
+
+  if (state.kind === "unauthenticated") {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <main className="flex min-h-screen items-center justify-center p-4">{children}</main>
+      </div>
+    );
+  }
+
+  const selectedLabel =
+    state.selectedWorkspaceId
+      ? `พื้นที่ทำงาน: ${state.selectedWorkspaceId}`
+      : "เลือกพื้นที่ทำงาน";
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -33,7 +83,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               AI Omnichannel Sales OS
             </Link>
           </div>
-          <div className="text-sm text-gray-500">Admin user · Tenant 1</div>
+          <div className="flex items-center gap-3 text-sm text-gray-600">
+            <span className="hidden sm:inline">{state.user.email ?? state.user.id}</span>
+            <span className="hidden text-gray-300 md:inline">|</span>
+            <Link href="/workspaces" className="hidden text-blue-600 hover:underline md:inline">
+              {selectedLabel}
+            </Link>
+            <Button variant="ghost" onClick={logout} className="text-red-600">
+              ออกจากระบบ
+            </Button>
+          </div>
         </div>
       </header>
 

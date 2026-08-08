@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
-import { AppShell } from "@/components/shell/app-shell";
+import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "AI Omnichannel Sales OS",
@@ -15,7 +15,7 @@ export default function RootLayout({
   return (
     <html lang="th">
       <body className="antialiased">
-        <AppShell>{children}</AppShell>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

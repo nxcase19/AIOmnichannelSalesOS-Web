@@ -16,13 +16,23 @@ export type { FacebookBusiness, FacebookPage, FacebookPageOption, TenantSummary,
 
 export type ApiError = { status: number; message: string };
 
-async function apiCall<T>(path: string, method: "GET" | "POST" = "GET", body?: unknown): Promise<T> {
+async function apiCall<T>(
+  path: string,
+  method: "GET" | "POST" = "GET",
+  body?: unknown,
+  workspaceId?: string,
+): Promise<T> {
+  if (USE_MOCK) {
+    return Promise.resolve(undefined as unknown as T);
+  }
+
   const url = `${API_BASE}${path}`;
   const init: RequestInit = {
     method,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      "X-Tenant-Id": DEFAULT_TENANT,
+      "X-Workspace-Id": workspaceId ?? DEFAULT_TENANT,
     },
   };
   if (body !== undefined) {
