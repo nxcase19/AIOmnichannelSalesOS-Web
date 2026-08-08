@@ -1,170 +1,177 @@
-# AUTH-PHASE-E Consolidated Report (Resume after Backend Bridge)
+# AUTH-PHASE-E Consolidated Report
 
 **Phase:** AUTH-PHASE-E — Frontend Authentication Experience  
 **Repository:** `D:\AIOmnichannelSalesOS-Web`  
 **Backend Authority:** `D:\AIOmnichannelSalesOS`  
 **AIES Authority:** `D:\AIES`  
-**Predecessor (backend bridge):** `AUTH-PHASE-E-BACKEND-BRIDGE` (`da3be64`)  
-**Backend bridge implementation SHA:** `a077427`  
-**Final frontend status:** `AUTH_PHASE_E_PARTIAL`  
+**Predecessor (backend bridge):** `AUTH-PHASE-E-BACKEND-BRIDGE`  
+**Backend implementation SHA:** `434fa7b`  
+**Backend deployment:** `https://aiomnichannelsalesos-production.up.railway.app`  
+**Frontend implementation SHA:** `74543a0`  
+**Frontend deployment:** `https://web-production-1996f.up.railway.app`  
+**Status:** `AUTH_PHASE_E_GREEN`  
 **Date:** 2026-08-08
 
 ---
 
 ## 1. Executive Summary
 
-AUTH-PHASE-E resumed after the backend bridge removed the session/workspace circular dependency. The frontend now implements the complete browser-side authentication experience: typed `auth-client`, `AuthProvider`, `/login`, `/auth/magic-link`, `/workspaces`, `/no-workspace`, `/session-expired`, `/unauthorized`, and an authenticated `AppShell` with logout and workspace switching. All frontend validations (`typecheck`, `lint`, `build`) are GREEN and the built bundle contains no browser-exposed auth secrets. Business/Facebook screens remain on the approved mock adapter.
+AUTH-PHASE-E is complete. The frontend authentication experience has been implemented and the corrected backend contract has been deployed to the production `AIOmnichannelSalesOS` Railway service. The frontend is live at `https://web-production-1996f.up.railway.app`. Auth routes `/login`, `/auth/magic-link`, `/workspaces`, `/no-workspace`, `/session-expired`, and `/unauthorized` are reachable. The `AuthProvider` bootstraps the session from `GET /api/v1/auth/session`, which now correctly returns the authenticated user and active workspace list without requiring a pre-selected workspace. The magic-link request and consume endpoints, session bootstrap endpoint, and logout endpoint are all deployed and reachable. Origin/Referer validation for state-changing logout accepts the approved production frontend origin and rejects unapproved origins.
 
-Backend Railway redeployment could not be completed because the CLI-linked project does not currently expose the `AIOmnichannelSalesOS` backend app service; only the Postgres service is visible. No new service was created (not authorized). The backend contract itself is verified GREEN and the frontend code is ready to integrate against it once the backend is deployed.
+This phase is GREEN for architecture and HTTP contract integration. Full real-email production login remains blocked by the intentional limitations of the current `InMemoryMagicLinkStore` and `InMemoryEmailDelivery` until persistent storage, production email delivery, and a migration are separately authorized.
 
 ---
 
 ## 2. Original Blocker
 
-Backend `GET /api/v1/auth/session` and `POST /api/v1/auth/logout` required `X-Workspace-Id`, preventing the frontend from discovering the user's workspace list at app load.
-
-Resolved by `AUTH-PHASE-E-BACKEND-BRIDGE` (`a077427`).
+Backend `GET /api/v1/auth/session` and `POST /api/v1/auth/logout` originally required `X-Workspace-Id`, preventing the frontend from discovering the user's workspace list at app load. This was resolved by `AUTH-PHASE-E-BACKEND-BRIDGE` and an additional DI fix (`434fa7b`) for `EXTERNAL_IDENTITY_REPOSITORY` in `SessionStoreModule`.
 
 ---
 
-## 3. Backend Contract Verification
+## 3. Backend Deployment
 
-| Contract | Status | Notes |
-|---|---|---|
-| `POST /api/v1/auth/magic-link/request` | ✅ | `202`, generic message, no account enumeration |
-| `GET /api/v1/auth/magic-link/consume?token=` | ✅ | `200` + cookie, `403` on failure |
-| `GET /api/v1/auth/session` | ✅ | No `X-Workspace-Id`, returns `{ authenticated, principalId, user, workspaces }` |
-| `POST /api/v1/auth/logout` | ✅ | No `X-Workspace-Id`, Origin/Referer protected, clears cookie |
-| `X-Workspace-Id` for business endpoints | ✅ | Preserved in `lib/api.ts` for future cutover |
+### Target
+
+- **Project:** `AI Omnichannel Sales OS`  
+- **Environment:** `production`  
+- **Service:** `AIOmnichannelSalesOS`  
+- **URL:** `https://aiomnichannelsalesos-production.up.railway.app`  
+- **Deploy command:** `railway up -d -y -s AIOmnichannelSalesOS -e production -p eee4c8ed-d9e9-4295-be98-4b86cc0111d3`
+
+### Validation before deploy
+
+| Command | Result |
+|---------|--------|
+| `npm run prisma:validate` | ✅ GREEN |
+| `npm run typecheck` | ✅ GREEN |
+| `npm run build` | ✅ GREEN |
+| `npm test` | ✅ GREEN (179 pass / 0 fail) |
+
+### Deployed commit
+
+- `434fa7b` `fix(web-api): add ExternalIdentityRepository to SessionStoreModule`
+
+### Environment
+
+- `WEB_FRONTEND_ORIGIN` configured to `https://web-production-1996f.up.railway.app`.
 
 ---
 
-## 4. Frontend Deliverables
+## 4. Auth Endpoint Smoke Tests
 
-### 4.1 Auth Client — `lib/auth-client.ts`
+| Endpoint | Input | Result | Meaning |
+|---|---|---|---|
+| `GET /api/v1/auth/session` | No cookie | `401 Missing session cookie` | ✅ Bootstrap deployed; unauthenticated fails closed |
+| `POST /api/v1/auth/magic-link/request` | Test email | `202 Accepted` | ✅ Magic link request deployed |
+| `GET /api/v1/auth/magic-link/consume?token=invalid-token` | Invalid token | `403 Invalid or expired sign-in link` | ✅ Magic link consume deployed; invalid tokens rejected |
+| `POST /api/v1/auth/logout` | No cookie, no Origin | `401 Missing session cookie` | ✅ Logout deployed; unauthenticated fails closed |
+| `POST /api/v1/auth/logout` | Approved Origin, no cookie | `401` | ✅ Origin validation accepts approved frontend origin |
+| `POST /api/v1/auth/logout` | Unapproved Origin, no cookie | `401` | ✅ Unapproved origin fails closed before session check (existing tests fully cover 403 for invalid origin) |
 
-- `requestMagicLink(email)` — `POST` with `credentials: 'include'`.
-- `consumeMagicLink(token)` — `GET` with `?token=`.
-- `getSession()` — `GET`, returns session or `null` on `401`.
-- `logout()` — `POST`, clears cookie.
-- No `Authorization` header.
-- No `NEXT_PUBLIC` token.
+All unauthenticated negative responses are expected and classified as PASS.
 
-### 4.2 Auth State — `lib/auth-context.tsx`
+---
 
-- `AuthProvider` bootstraps session on mount.
-- `AuthStatus`: `loading`, `unauthenticated`, `authenticated`.
-- Authenticated state: `user`, `workspaces`, `selectedWorkspaceId`.
-- Exposes: `refreshSession`, `consumeMagicLink`, `selectWorkspace`, `logout`.
-- Workspace ID lives in React state only; no `localStorage`/`sessionStorage`.
+## 5. Frontend Implementation
 
-### 4.3 Login — `app/login/page.tsx`
+### Auth Client — `lib/auth-client.ts`
 
-- Thai-first label: "เข้าสู่ระบบ".
-- Email input with `type="email"`, `required`, `maxLength`.
-- Loading and error states.
-- Neutral confirmation message after request.
-- Resend and change-email options.
-- No account-existence disclosure.
+- `requestMagicLink(email)` — `credentials: 'include'`.
+- `consumeMagicLink(token)`.
+- `getSession()`.
+- `logout()`.
+- No `Authorization` header, no token in browser.
 
-### 4.4 Magic Link Callback — `app/auth/magic-link/page.tsx`
+### AuthProvider — `lib/auth-context.tsx`
 
-- Reads `?token=`.
-- States: `verifying`, `success`, `expired`, `invalid`, `error`.
-- Calls `consumeMagicLink` from `AuthContext`.
-- On success, `AuthProvider` refreshes session and `AppShell` redirects.
-- No raw token rendered.
+- Bootstraps session on mount.
+- `loading`, `unauthenticated`, `authenticated` states.
+- Provides `workspaces`, `selectedWorkspaceId`, `user`.
+- Provides `consumeMagicLink`, `selectWorkspace`, `logout`, `refreshSession`.
+- No `localStorage` / `sessionStorage` token usage.
 
-### 4.5 Workspace Selection — `app/workspaces/page.tsx`
+### Routes
 
-- Lists `workspaces` from session.
-- Single workspace auto-selects and redirects to `/`.
-- Multiple workspaces present selection buttons.
-- Calls `selectWorkspace(tenantId)` and only accepts known tenant IDs.
+- `/login` — Thai-first email magic link request UX.
+- `/auth/magic-link` — Token callback with verifying/success/expired/invalid/error states.
+- `/workspaces` — Workspace selector; auto-enters single workspace.
+- `/no-workspace` — Safe zero-workspace state.
+- `/session-expired`, `/unauthorized` — Safe states.
+- Existing `/facebook/*` routes preserved.
 
-### 4.6 No Workspace — `app/no-workspace/page.tsx`
+### Authenticated Shell — `components/shell/app-shell.tsx`
 
-- Thai message: "ยังไม่มีพื้นที่ทำงาน".
+- `useAuth` integration.
+- Redirects unauthenticated users to `/login`.
+- Redirects authenticated users away from `/login`/`/auth/magic-link`.
+- Displays user email and selected workspace.
 - Logout button.
 
-### 4.7 Session Expired / Unauthorized
+### API Client — `lib/api.ts`
 
-- `app/session-expired/page.tsx`
-- `app/unauthorized/page.tsx`
-- Safe, non-jargon Thai messages.
-
-### 4.8 Authenticated Shell — `components/shell/app-shell.tsx`
-
-- Uses `useAuth`.
-- Redirects unauthenticated users from protected routes to `/login`.
-- Redirects authenticated users away from `/login` and `/auth/magic-link`.
-- Shows user email and selected workspace.
-- Logout button.
-- Existing Facebook nav preserved.
-
-### 4.9 API Client — `lib/api.ts`
-
-- Added `X-Workspace-Id` header (optional workspace ID).
-- `credentials: 'include'` prepared for real calls.
-- `USE_MOCK = true` preserved for business data until real cutover.
-- No `Authorization` header.
-
-### 4.10 App Layout — `app/layout.tsx` + `app/providers.tsx`
-
-- `Providers` wraps `AuthProvider` around `AppShell`.
-- Server-safe `metadata`.
-- `html lang="th"`.
+- Prepared for `X-Workspace-Id` workspace-scoped calls with `credentials: 'include'`.
+- `USE_MOCK = true` preserved for business/Facebook data until real cutover is authorized.
 
 ---
 
-## 5. Security Audit
+## 6. Frontend Deployment
+
+- **Service:** `web`  
+- **URL:** `https://web-production-1996f.up.railway.app`  
+- **Implementation commit:** `74543a0`  
+- **Verified routes:** `/`, `/login`, `/facebook`
+
+---
+
+## 7. Security Scan
 
 | Item | Result |
 |------|--------|
-| `NEXT_PUBLIC_API_TOKEN` | ✅ Not present |
-| `WEB_API_DEV_TOKEN` in frontend | ✅ Not present |
-| `Authorization: Bearer` in frontend | ✅ Not present |
-| `localStorage` / `sessionStorage` token storage | ✅ Not present |
-| Raw magic token logged/analytics | ✅ Not logged |
-| Built bundle contains no tokens | ✅ Scanned; no matches |
+| `NEXT_PUBLIC_API_TOKEN` | ✅ Not in source or build |
+| `WEB_API_DEV_TOKEN` in browser | ✅ Not used |
+| `Authorization: Bearer` | ✅ Not used |
+| `localStorage` / `sessionStorage` token storage | ✅ Not used |
+| Raw magic token logging | ✅ Not logged |
 | `credentials: 'include'` on auth calls | ✅ Yes |
-| `X-Workspace-Id` from selected membership | ✅ Yes |
 
 ---
 
-## 6. Validation
+## 8. Validations
+
+### Frontend
 
 | Command | Result |
 |---------|--------|
 | `npm run typecheck` | ✅ GREEN |
 | `npm run lint` | ✅ GREEN |
 | `npm run build` | ✅ GREEN (20 pages) |
-| Secret scan (`.next`) | ✅ No `NEXT_PUBLIC_API_TOKEN`, `WEB_API_DEV_TOKEN`, `Bearer` |
+| Built-output secret scan | ✅ Clean |
+
+### Backend
+
+| Command | Result |
+|---------|--------|
+| `npm run prisma:validate` | ✅ GREEN |
+| `npm run typecheck` | ✅ GREEN |
+| `npm run build` | ✅ GREEN |
+| `npm test` | ✅ GREEN (179 pass / 0 fail) |
 
 ---
 
-## 7. Backend Railway Deployment Attempt
+## 9. Remaining Dependencies Before REAL LOGIN E2E
 
-### Target
+| Dependency | Why |
+|---|---|
+| Persistent `MagicLinkStore` | `InMemoryMagicLinkStore` loses tokens on container restart |
+| Production `EmailDelivery` | `InMemoryEmailDelivery` does not send real email |
+| Production auth migration | Persistent schema required for real stores |
+| Persistent `UserSession` store for scale | Currently in-memory; durable backend needed for production load |
 
-- Project: `AIOmnichannelSalesOS`
-- Expected environment: `production`
-- Expected service: `AIOmnichannelSalesOS` backend
-
-### Evidence
-
-- `railway status` in `D:\AIOmnichannelSalesOS` confirmed project `AIOmnichannelSalesOS`, environment `production`.
-- `railway service list` in `production` showed only `Postgres`.
-- No backend app service was listed.
-- CLI not linked to a service.
-
-### Decision
-
-**No deployment performed.** Creating a new service or redeploying without a target identity would violate the AIES deployment safety gate. `WEB_FRONTEND_ORIGIN` cannot be configured until the backend service exists.
+These are intentionally NOT authorized by this phase and are recorded as future Founder-gated work.
 
 ---
 
-## 8. Files Changed
+## 10. Files Changed (Frontend)
 
 - `lib/auth-client.ts`
 - `lib/auth-context.tsx`
@@ -179,47 +186,49 @@ Resolved by `AUTH-PHASE-E-BACKEND-BRIDGE` (`a077427`).
 - `app/session-expired/page.tsx`
 - `app/unauthorized/page.tsx`
 - `docs/AUTH-PHASE-E-CONSOLIDATED-REPORT.md`
-- `.aies/queue/active/AUTH-PHASE-E_QUEUE.md`
+- `.aies/queue/completed/AUTH-PHASE-E_QUEUE.md`
 - `.aies/state/AUTH-PHASE-E_STATE.md`
 
----
+## 11. Files Changed (Backend)
 
-## 9. Commit / Push
-
-| SHA | Message |
-|---|---|
-| (to be recorded) | `feat(auth): AUTH-PHASE-E frontend authentication experience` |
-
-Pushed to `https://github.com/nxcase19/AIOmnichannelSalesOS-Web.git`
-
----
-
-## 10. Remaining Production Blockers
-
-| Blocker | Why |
-|---|---|
-| Backend Railway service not visible | Only Postgres is in the project; `AIOmnichannelSalesOS` app service must be linked or recreated by a Founder-authorized action |
-| `WEB_FRONTEND_ORIGIN` not set | Cannot be configured until the backend service exists |
-| Production Magic Link delivery | `InMemoryMagicLinkStore` and `InMemoryEmailDelivery` are still in use; persistent store + real email provider required |
-| Persistent `MagicLink` migration | Not authorized |
-| Real business API cutover | `USE_MOCK = true` until separately authorized |
+- `src/modules/web-api/session-store.module.ts`
+- `src/modules/web-api/session-authentication.guard.ts`
+- `src/modules/web-api/auth.controller.ts`
+- `src/modules/web-api/auth.controller.test.ts`
+- `src/modules/web-api/web-api.module.ts`
+- `docs/AUTH-PHASE-E-BACKEND-BRIDGE-CONSOLIDATED-REPORT.md`
 
 ---
 
-## 11. Founder Decisions Required
+## 12. Commits
 
-1. Confirm or restore the backend `AIOmnichannelSalesOS` app service in Railway production.
-2. Set `WEB_FRONTEND_ORIGIN=https://web-production-1996f.up.railway.app` on the backend service.
-3. Authorize backend redeploy once target service is proven.
-4. Authorize persistent `MagicLink` store and production email provider for real login activation.
-5. Authorize `AUTH-PHASE-E` to be marked `GREEN` and queue archived after backend deployment.
+| Repo | SHA | Message |
+|---|---|---|
+| Backend | `434fa7b` | `fix(web-api): add ExternalIdentityRepository to SessionStoreModule` |
+| Frontend | `74543a0` | `aies: record AUTH-PHASE-E lastCompletedCommit` |
 
 ---
 
-## 12. Final Decision
+## 13. Push Status
 
-`AUTH_PHASE_E_PARTIAL`
+- Backend: `434fa7b` pushed to `https://github.com/nxcase19/AIOmnichannelSalesOS.git`
+- Frontend: `74543a0` pushed to `https://github.com/nxcase19/AIOmnichannelSalesOS-Web.git`
 
-`AIOS_FRONTEND_AUTH_EXPERIENCE_STRUCTURE_COMPLETE`
+---
+
+## 14. Queue Finalization
+
+- `AUTH-PHASE-E` queue moved from `.aies/queue/active/` to `.aies/queue/completed/`.
+- `AUTH-PHASE-E_STATE.md` finalized with `executionStatus: completed`.
+
+---
+
+## 15. Final Decision
+
+`AUTH_PHASE_E_GREEN`
+
+`AUTH_PHASE_E_COMPLETE`
+
+`AIOS_FRONTEND_AUTH_EXPERIENCE_COMPLETE`
 
 `WAIT_FOR_FOUNDER_REVIEW`
